@@ -1,0 +1,38 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/zy/git-project/objLeftNew/myGMM.cpp
+objLeftDetect.h
+/home/zy/git-project/objLeftNew/objLeftDetect.h
+iostream
+-
+
+/home/zy/git-project/objLeftNew/objLeftDetect.h
+opencv2/opencv.hpp
+-
+opencv2/core/core.hpp
+-
+
+/home/zy/git-project/objLeftNew/objLeftDetectcpp.cpp
+objLeftDetect.h
+/home/zy/git-project/objLeftNew/objLeftDetect.h
+cstdio
+-
+
+/home/zy/git-project/objLeftNew/test.cpp
+objLeftDetect.h
+/home/zy/git-project/objLeftNew/objLeftDetect.h
+opencv2/opencv.hpp
+-
+opencv2/core/core.hpp
+-
+iostream
+-
+cstdio
+-
+

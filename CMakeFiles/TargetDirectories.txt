@@ -1,0 +1,3 @@
+/home/zy/git-project/objLeftNew/CMakeFiles/edit_cache.dir
+/home/zy/git-project/objLeftNew/CMakeFiles/rebuild_cache.dir
+/home/zy/git-project/objLeftNew/CMakeFiles/objLeftNew.dir
