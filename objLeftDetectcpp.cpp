@@ -1,9 +1,9 @@
 #include "objLeftDetect.h"
 #include <cstdio>
 #define INPUT_RESIZE 0.5
-#define GMM_LEARN_FRAME 300
+#define GMM_LEARN_FRAME 200 //background modeling
 #define MIN_FG 20
-#define BUFFER_LENGTH 900
+#define BUFFER_LENGTH 500//alarm sensitivity
 #define OWNER_SEARCH_ROI 50
 #define MAX_FG 1000
 #define MAX_SFG 120
@@ -288,9 +288,7 @@ ObjLeftDetect::ObjLeftDetect(IplImage* mask) {
 		image[k] = (int*)malloc(new_height*sizeof(int));
 	connect_colors = (myFloatColor *)malloc(10*sizeof(myFloatColor));
 	
-	ObjLocation.clear();
 	LeftLocation.clear();
-
 	_img = new myImage(new_width, new_height, 3);
 	_imgSynopsis = new myImage(new_width, new_height, 3);
 
@@ -317,7 +315,7 @@ ObjLeftDetect::~ObjLeftDetect() {
 	cvReleaseImage(&B);	
 }
 
-bool ObjLeftDetect::process(IplImage* dealFrame, int fno) {	
+bool ObjLeftDetect::process(IplImage* dealFrame, Rect& pos) {
 	cvCopy(dealFrame, imgTool);	
 	medianBlur(mat_imgTool, mat_imgTool, 3);
 	imgOri->formMyImg(imgTool); //imgTool ==> imgOri
@@ -327,12 +325,17 @@ bool ObjLeftDetect::process(IplImage* dealFrame, int fno) {
 	//static Foreground Detection
 	object_detected = _CBM_model->Motion_Detection(_img);	
 	if (object_detected == true) {
-		ObjLocation = _CBM_model->detected_result;
 		LeftLocation = _CBM_model->static_object_result;
 		if (LeftLocation.size() > 0) {
-			_imgSynopsis->myImg_zero();
+			_imgSynopsis->myImg_zero();			
 			//back-Tracing verification && object left event analysis
-			set_alarm = soft_validation3(_imgSynopsis, LeftLocation);
+			set_alarm = soft_validation3(_imgSynopsis, LeftLocation, pos);			
+			IplImage* res;
+			res = cvCreateImage(cvSize(new_width, new_height), IPL_DEPTH_8U, 3);
+			_img->trans2IPL(res);
+			Mat outputres(res);
+			rectangle(outputres, pos, Scalar(0, 0, 255), 2);
+			imwrite("prob.jpg", outputres);
 			_CBM_model->System_Reset();
 			LeftLocation.clear();
 		}
@@ -340,12 +343,12 @@ bool ObjLeftDetect::process(IplImage* dealFrame, int fno) {
 	return set_alarm;
 }
 
-bool ObjLeftDetect::soft_validation3(myImage* ImgSynopsis, vector<Obj_info*> obj_left) 
+bool ObjLeftDetect::soft_validation3(myImage* ImgSynopsis, vector<Obj_info*> obj_left, Rect& pos) 
 {
+	printf("object size=%d\n", obj_left.size());
 	bool _set_alarm = false;
 	bool ** foreground;
-	int temporal_rule = BUFFER_LENGTH;
-	int retreval_time = temporal_rule / 2 + temporal_rule / 6;
+	int retreval_time = BUFFER_LENGTH / 2 + BUFFER_LENGTH / 6;
 	/************************************************************************/
 	/*  capture the color information of the suspected owner               */
 	/************************************************************************/
@@ -355,20 +358,22 @@ bool ObjLeftDetect::soft_validation3(myImage* ImgSynopsis, vector<Obj_info*> obj
 	for (int j = 0; j < new_width; j++) {
 		for (int k = 0; k < new_height; k++) {
 			if (foreground[j][k] == true) {
-				for (int n = 0; n < obj_left.size(); n++)
-				{
+				for (int n = 0; n < obj_left.size(); n++) {
 					float owner_dist = point_dist((float)j, (float)k, (float)obj_left.at(n)->x, (float)obj_left.at(n)->y);
 					if (owner_dist < OWNER_SEARCH_ROI)//distance threshold
 					{
-						for (int w = -30; w < 30; w++) {
-							//rgb histogram accumulated
-							myColor color;
-							color = _CBM_model->_GetPrevious_nFrame(retreval_time - 1)->myGet2D(j, k);
-							obj_left.at(n)->Owner_B[(int)((float)color.B / 255.0*10.0)] += 1.0;
-							obj_left.at(n)->Owner_G[(int)((float)color.G / 255.0*10.0)] += 1.0;
-							obj_left.at(n)->Owner_R[(int)((float)color.R / 255.0*10.0)] += 1.0;
-						}
+						//for (int w = -30; w < 30; w++) {
+						//	//rgb histogram accumulated
+						//	myColor color;
+						//	color = _CBM_model->_GetPrevious_nFrame(retreval_time - 1)->myGet2D(j, k);
+						//	obj_left.at(n)->Owner_B[(int)((float)color.B / 255.0*10.0)] += 1.0;
+						//	obj_left.at(n)->Owner_G[(int)((float)color.G / 255.0*10.0)] += 1.0;
+						//	obj_left.at(n)->Owner_R[(int)((float)color.R / 255.0*10.0)] += 1.0;
+						//}
 						foreground_found = true;
+						pos.x = obj_left.at(n)->x;
+						pos.y = obj_left.at(n)->y;
+						pos.width = pos.height = 20;
 					}
 				}
 			}//if
@@ -655,14 +660,14 @@ CBM_model::CBM_model(myImage * input, int set_MOG_LearnFrame, int set_min_area,
 	_myGMM2 = new myGMM(0.002);
 	
 	maskROI = mask;
-	hog = HOGDescriptor(cvSize(Win_width, Win_height), cvSize(Block_size, Block_size), cvSize(Block_stride, Block_stride), cvSize(Cell_size, Cell_size), Bin_num);
+	hog = HOGDescriptor(cvSize(Win_width, Win_height), cvSize(Block_size, Block_size), 
+		cvSize(Block_stride, Block_stride), cvSize(Cell_size, Cell_size), Bin_num);
 	hog.setSVMDetector(HOGDescriptor::getDefaultPeopleDetector());
 }
 CBM_model::~CBM_model()
 {
 	my_mog_fg->myReleaseImage();
 	my_mog_fg2->myReleaseImage();
-	my_imgCandiStatic->myReleaseImage();
 	my_imgStatic->myReleaseImage();
 	input_temp->myReleaseImage();
 	for (int i = 0; i < new_width; i++)
@@ -679,7 +684,6 @@ void CBM_model::Initialize()
 {	
 	my_mog_fg = new myImage(new_width, new_height, 1);
 	my_mog_fg2 = new myImage(new_width, new_height, 1);
-	my_imgCandiStatic = new myImage(new_width, new_height, 3);
 	my_imgStatic = new myImage(new_width, new_height, 3);	
 	input_temp = new myImage(new_width, new_height, 1);
 	imageFSM = (pixelFSM **)malloc((int)new_width*sizeof(pixelFSM *));
@@ -723,7 +727,7 @@ bool CBM_model::Motion_Detection(myImage *img)
 {
 	img->myImg_resize(_Previous_Img[FG_count]);
 	if (frame_count < MOG_LEARN_FRAMES){
-		printf("update mog %d\n", MOG_LEARN_FRAMES-frame_count);
+		printf("update mog %d\n", MOG_LEARN_FRAMES - frame_count);
 		if (frame_count == 0){
 			_myGMM->initial(_Previous_Img[FG_count]);
 			_myGMM2->initial(_Previous_Img[FG_count]);
@@ -732,12 +736,7 @@ bool CBM_model::Motion_Detection(myImage *img)
 		_myGMM2->process(_Previous_Img[FG_count], my_mog_fg2);
 		frame_count++;
 		return false;
-	} else {
-		/*if (singleFlag == false) {
-			singleFlag = true;
-			return false;
-		}
-		singleFlag = true;*/
+	} else {		
 		//***MOG model***//
 		//long:
 		_myGMM->process(_Previous_Img[FG_count], input_temp);
@@ -755,44 +754,38 @@ bool CBM_model::Motion_Detection(myImage *img)
 		} else {//default long-term model learning rate
 			_myGMM->ChangeLearningRate(0.0001);
 		}
-		myFSM(my_mog_fg2, my_mog_fg, imageFSM, Previous_FG);
-		myCvtFSM2Img(imageFSM, my_imgCandiStatic, my_imgStatic);
+		myFSM(my_mog_fg2, my_mog_fg, imageFSM, Previous_FG);	
 
 		staticFG_pixel_num_pre2 = staticFG_pixel_num_pre;
 		staticFG_pixel_num_pre = staticFG_pixel_num_now;
-		staticFG_pixel_num_now = countFGnum(my_imgStatic);	
+		staticFG_pixel_num_now = myCvtFSM2Img(imageFSM, my_imgStatic);
 		bool static_object_detected = false;
 		if ((staticFG_pixel_num_now == staticFG_pixel_num_pre) && 
 			(staticFG_pixel_num_pre == staticFG_pixel_num_pre2) && 
 			(staticFG_pixel_num_now > 0)) {
-			static_object_detected = myClustering(my_imgStatic, 1);
+			static_object_detected = myClustering(my_imgStatic);
 		}
-		FG_count = FG_count + 1;
-		FG_count = FG_count%TEMPORAL_RULE;
+		FG_count = (FG_count + 1)%TEMPORAL_RULE;
 		
 		return static_object_detected;
 	}
 }
-bool CBM_model::myClustering(myImage *img, int option)
+bool CBM_model::myClustering(myImage *img)
 {
 	int area_threshold = 0;
 	myImage * temp = new myImage(new_width, new_height, 1);
-	if (img->myd == 3)//static foreground object
-	{
+	if (img->myd == 3) {//static foreground object
 		img->myImg_rgb2gray(temp);
 		area_threshold = MIN_AREA / 2;//0;
-	}
-	else if (img->myd == 1)//foreground detection
-	{
+	} else if (img->myd == 1) {//foreground detection
 		img->myImg_copy(temp);
 		area_threshold = MIN_AREA;
 	}
 
 	int found_objnum = 0;
-	found_objnum = GetLabeling(temp, area_threshold, option);
+	found_objnum = GetLabeling(temp, area_threshold);
 	temp->myReleaseImage();
 	delete(temp);
-
 	if (found_objnum > 0)  return true;
 	else return false;
 }
@@ -803,22 +796,20 @@ Ignore the connected component when :
 case1.  It's pixel is more than a areaThreshold.
 case2.  The bounding rectangle is too thin or fat.  */
 /************************************************************************/
-int CBM_model::GetLabeling(myImage *pImg1, int areaThreshold, int option)
+int CBM_model::GetLabeling(myImage *pImg1, int areaThreshold)
 {
 	int	found_objnum = 0;
-	if (option == 0) detected_result.clear();
-	else if (option == 1) static_object_result.clear();
+	static_object_result.clear();
 
 	//find object's conturs of binary frame 
 	unsigned int *out = (unsigned int *)malloc(sizeof(*out)*pImg1->myw*pImg1->myh);
-	for (int i = 0; i < pImg1->myw*pImg1->myh; i++){
-		out[i] = pImg1->myData[i];
-	}
+	for (int i = 0; i < pImg1->myw*pImg1->myh; i++) out[i] = pImg1->myData[i];
 
+	//get label tag:???30
 	ConnectedComponents cc(30);
 	cc.connected(pImg1->myData, out, pImg1->myw, pImg1->myh,
 		std::equal_to<unsigned char>(), constant<bool, true>());	
-
+	//get color_labels:
 	bool constant_template[256] = { false };
 	vector<int> color_labels;
 	color_labels.clear();
@@ -831,13 +822,8 @@ int CBM_model::GetLabeling(myImage *pImg1, int areaThreshold, int option)
 			color_labels.push_back(i);
 		}
 	}
-	if (found_objnum == 1){
-		free(out);
-		return found_objnum - 1;
-	}
-	else{
-		for (int n = 0; n < found_objnum; n++)
-		{
+	if (found_objnum > 1){
+		for (int n = 0; n < found_objnum; n++) {
 			int blob_x1 = pImg1->myw, blob_y1 = pImg1->myh, blob_x2 = 0, blob_y2 = 0;
 			for (int i = 0; i < pImg1->myw; i++){
 				for (int j = 0; j < pImg1->myh; j++){
@@ -852,23 +838,9 @@ int CBM_model::GetLabeling(myImage *pImg1, int areaThreshold, int option)
 			int blob_w = 0, blob_h = 0;
 			blob_w = (blob_x2 - blob_x1) + 1;
 			blob_h = (blob_y2 - blob_y1) + 1;
-
 			//rectangle ratio filter
-			int areaThreshold_max = 0, areaThreshold_min = 0;
-			if (option == 0)//for moving foreground
-			{
-				areaThreshold_max = MAX_FG;
-				areaThreshold_min = MIN_FG;
-			}
-			else if (option == 1)
-			{
-				areaThreshold_max = MAX_SFG;
-				areaThreshold_min = MIN_SFG;
-			}
-
-			if ((((int)blob_w*(int)blob_h) > areaThreshold_min) &&
-				(((int)blob_w*(int)blob_h) < (float)areaThreshold_max))
-			{
+			if ((((int)blob_w*(int)blob_h) > MIN_SFG) &&
+				(((int)blob_w*(int)blob_h) < MAX_SFG)){
 				Obj_info * element;
 				element = new Obj_info;
 				element->x = blob_x1 + blob_w / 2;
@@ -876,14 +848,12 @@ int CBM_model::GetLabeling(myImage *pImg1, int areaThreshold, int option)
 				element->width = blob_w;
 				element->height = blob_h;
 				//cvRectangle( img, cvPoint(blob_x1,blob_y1), cvPoint(blob_x2,blob_y2), CV_RGB(255,255,255), 2, 8, 0);
-
-				if (option == 0)	detected_result.push_back(element);
-				if (option == 1)	static_object_result.push_back(element);
+				static_object_result.push_back(element);
 			}//end of filter  
-		}
-		free(out);
-		return found_objnum - 1;
+		}		
 	}//end of object checking
+	free(out);
+	return found_objnum - 1;
 }
 myImage * CBM_model::_GetPrevious_nFrame(int n) {
 	return _Previous_Img[(FG_count + (TEMPORAL_RULE - n)) % TEMPORAL_RULE];
@@ -899,48 +869,33 @@ void CBM_model::myFSM(myImage *short_term, myImage *long_term, pixelFSM ** image
 		for (int j = 0; j < new_height; j++){
 			buffer[0] = short_term->myGet2D(i, j);
 			buffer[1] = long_term->myGet2D(i, j);
-
 			imageFSM[i][j].state_pre = imageFSM[i][j].state_now;
+			
 			imageFSM[i][j].state_now = 0;
-
-			if ((buffer[0].B == 255) && (buffer[0].G == 255) && (buffer[0].R == 255)){
-				imageFSM[i][j].state_now += 2;
-			}
-			else{
-				imageFSM[i][j].state_now = 0;
-			}
-
-			if ((buffer[1].B == 255) && (buffer[1].G == 255) && (buffer[1].R == 255)){
+			if ((buffer[0].B == 255) && (buffer[0].G == 255) && (buffer[0].R == 255))
+				imageFSM[i][j].state_now = 2;
+			else imageFSM[i][j].state_now = 0;
+			if ((buffer[1].B == 255) && (buffer[1].G == 255) && (buffer[1].R == 255))
 				imageFSM[i][j].state_now++;
-			}
-			else{
-				imageFSM[i][j].state_now = 0;
-			}
+			else imageFSM[i][j].state_now = 0;
 
+			//now & pre the coding is [short, long]=01;
 			if ((imageFSM[i][j].state_now == 1) && (imageFSM[i][j].state_pre == 1)){
-				if (imageFSM[i][j].static_count == (TEMPORAL_RULE / 2)){
+				if (imageFSM[i][j].static_count == (TEMPORAL_RULE / 2))//static appear time limit;
 					imageFSM[i][j].staticFG_stable = true;
-				}
-
-				if (imageFSM[i][j].staticFG_candidate == true){
+				if (imageFSM[i][j].staticFG_candidate == true)
 					imageFSM[i][j].static_count++;
-				}
-			}
-			else
-			{
+			} else { //reset the count = 0;
 				imageFSM[i][j].static_count = 0;
 				imageFSM[i][j].staticFG_candidate = false;
 			}
-
-			if ((imageFSM[i][j].state_now == 1) && (imageFSM[i][j].state_pre == 3))
-			{
+			//coding from 11 to 01: became the candidate:
+			if ((imageFSM[i][j].state_now == 1) && (imageFSM[i][j].state_pre == 3)) {
 				imageFSM[i][j].staticFG_candidate = true;
 			}
-
-			if (imageFSM[i][j].state_now == 3)
-				Previous_FG[FG_count][i][j] = true;
-			else
-				Previous_FG[FG_count][i][j] = false;
+			//recoding all coding is 11's frame.
+			if (imageFSM[i][j].state_now == 3) Previous_FG[FG_count][i][j] = true;
+			else Previous_FG[FG_count][i][j] = false;
 		}
 	}
 }
@@ -960,29 +915,22 @@ void CBM_model::myConvert2Img(bool **Array, myImage *output)
 		}
 	}
 }
-void CBM_model::myCvtFSM2Img(pixelFSM **Array, myImage *Candidate_Fg, myImage *Static_Fg)
+int CBM_model::myCvtFSM2Img(pixelFSM **Array, myImage *Static_Fg)
 {
+	int tmpCount = 0;
 	myColor color1, color2;
-	color1.B = 0; color1.G = 0; color1.R = 255;
-	color2.B = 0; color2.G = 200; color2.R = 255;
+	color1.B = 0; color1.G = 200; color1.R = 255;
+	color2.B = 0; color2.G = 0; color2.R = 0;
 #pragma omp parallel for	
 	for (int i = 0; i < new_width; i++){
 		for (int j = 0; j < new_height; j++){
-			if (Array[i][j].staticFG_candidate == true)
-				Candidate_Fg->mySet2D(color1, i, j);
-			else{
-				myColor a; a.B = 0; a.G = 0; a.R = 0;
-				Candidate_Fg->mySet2D(a, i, j);
-			}
-
-			if (Array[i][j].staticFG_stable == true)
-				Static_Fg->mySet2D(color2, i, j);
-			else{
-				myColor a; a.B = 0; a.G = 0; a.R = 0;
-				Static_Fg->mySet2D(a, i, j);
-			}
+			if (Array[i][j].staticFG_stable == true) {
+				Static_Fg->mySet2D(color1, i, j);
+				tmpCount++;
+			} else Static_Fg->mySet2D(color2, i, j);
 		}
 	}
+	return tmpCount;
 }
 int CBM_model::countFGnum(myImage * img) {
 	int foregroud = 0;

@@ -233,12 +233,12 @@ public:
 	void Initialize();
 	bool Motion_Detection(myImage *img);
 
-	bool myClustering(myImage *img, int option);//option: 0 for moving obj, 1 for static obj
-	int GetLabeling(myImage *pImg1, int areaThreshold, int option); //option: 0 for moving obj, 1 for static obj
+	bool myClustering(myImage *img/*, int option*/);//option: 0 for moving obj, 1 for static obj
+	int GetLabeling(myImage *pImg1, int areaThreshold/*, int option*/); //option: 0 for moving obj, 1 for static obj
 
 	void myFSM(myImage *short_term, myImage *long_term, pixelFSM ** imageFSM, bool *** Previous_FG);
 	void myConvert2Img(bool **Array, myImage *output);
-	void myCvtFSM2Img(pixelFSM **Array, myImage *Candidate_Fg, myImage *Static_Fg);
+	int myCvtFSM2Img(pixelFSM **Array, myImage *Static_Fg);
 
 	int countFGnum(myImage * img);
 
@@ -251,7 +251,6 @@ public:
 	int new_height;
 	float RESIZE_RATE;
 	//********detected result**************//
-	vector<Obj_info*> detected_result;//information of the moving objects
 	vector<Obj_info*> static_object_result;//information of the static foreground objects	
 
 	bool ** GetPrevious_nForeground(int n);
@@ -271,7 +270,7 @@ public:
 private:
 	myImage * my_mog_fg;//long term
 	myImage * my_mog_fg2;//short term
-	myImage * my_imgCandiStatic;
+	//myImage * my_imgCandiStatic;
 	
 	myGMM * _myGMM;//long term
 	myGMM * _myGMM2;//short term
@@ -297,7 +296,7 @@ class ObjLeftDetect {
 public:
 	ObjLeftDetect(IplImage* mask);
 	~ObjLeftDetect();
-	bool process(IplImage* img, int fno);
+	bool process(IplImage* img, Rect& pos);
 
 	int** image;
 	myFloatColor *connect_colors;
@@ -308,7 +307,6 @@ private:
 	bool object_detected;
 	bool set_alarm;
 
-	vector<Obj_info*> ObjLocation;
 	vector<Obj_info*> LeftLocation;
 	vector<Obj_info*> alarmList;
 	
@@ -321,7 +319,7 @@ private:
 
 	myImage *_imgSynopsis;
 
-	bool soft_validation3(myImage* ImgSynopsis, vector<Obj_info*> obj_left);
+	bool soft_validation3(myImage* ImgSynopsis, vector<Obj_info*> obj_left, Rect& pos);
 	int Spatial_Temporal_Search(int ** Image,int i, int j,
 		myFloatColor * colors,int time_stamp,int my_label);
 	int spatial_flood(bool ** foreground, int i, int j);
